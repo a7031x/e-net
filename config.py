@@ -13,6 +13,9 @@ c2i_file = './generate/c2i.json'
 
 word_emb_dim = 300
 char_emb_dim = 8
+char_hidden_dim = 100
+hidden_dim = 75
 batch_size = 64
+keep_prob = 0.7
 NULL = '--NULL--'
 OOV = '--OOV--'

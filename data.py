@@ -84,4 +84,5 @@ if __name__ == '__main__':
     feeder = Feeder(config.train_record_file)
     feeder.prepare()
     batch = feeder.next()
-    print(batch)
+    ptids, pcids, qtids, qcids = batch
+    print(pcids)
