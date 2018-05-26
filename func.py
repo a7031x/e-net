@@ -19,8 +19,8 @@ def dense(value, last_dim, use_bias=True, scope='dense'):
 
 def attention_pooling(value, hidden_dim, mask):
     sj = tf.nn.tanh(dense(value, hidden_dim, scope='summary_sj'))
-    sa = tf.squeeze(dense(sj, 1, use_bias=False, scope='summary_sa'), [-1])#[batch, len]
-    alpha = softmax(sa, mask)#[batch, len]
+    uj = tf.squeeze(dense(sj, 1, use_bias=False, scope='summary_uj'), [-1])#[batch, len]
+    alpha = softmax(uj, mask)#[batch, len]
     return tf.reduce_sum(tf.expand_dims(alpha, axis=-1) * value, axis=1), alpha
 
 
@@ -31,21 +31,19 @@ def summary(value, hidden_dim, mask, keep_prob, scope='summary'):
         return s
 
 
-def pointer(value, state, hidden_dim, mask, scope='pointer'):
+def pointer(encoder_state, decoder_state, hidden_dim, mask, scope='pointer'):
     with tf.variable_scope(scope):
-        length = tf.shape(value)[1]
-        tiled_state = tf.tile(tf.expand_dims(state, axis=1), [1, length, 1])
-        united_state = tf.concat([tiled_state, value], axis=2)
-        shrunk_state = dense(united_state, hidden_dim, use_bias=False, scope='shrunk_state')
-        _, alpha = attention_pooling(shrunk_state, hidden_dim, mask)
-        return tf.reduce_sum(tf.expand_dims(alpha, axis=-1) * value, axis=1), alpha
+        length = tf.shape(encoder_state)[1]
+        tiled_decoder_state = tf.tile(tf.expand_dims(decoder_state, axis=1), [1, length, 1])
+        united_state = tf.concat([tiled_decoder_state, encoder_state], axis=2)
+        _, alpha = attention_pooling(united_state, hidden_dim, mask)
+        next_decoder_state = tf.reduce_sum(tf.expand_dims(alpha, axis=-1) * encoder_state, axis=1)
+        return next_decoder_state, alpha
 
 
 def cross_entropy(logit, target, mask):
     eps = (1-mask) * 1E-8
     logit += eps
- #   tf.assert_greater(logit, 0.0)
- #   tf.assert_less(logit, 1.0)
     loss_t = -target * tf.log(logit) * mask
     loss_f = -(1-target) * tf.log(1-logit) * mask
     return loss_t + loss_f
