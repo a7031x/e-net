@@ -1,4 +1,5 @@
 
+checkpoint_folder = './checkpoint'
 train_file = './data/squad/train-v1.1.json'
 dev_file = './data/squad/dev-v1.1.json'
 #test_file = './data/squad/dev-v1.1.json'

@@ -59,7 +59,7 @@ class Feeder:
         records = [self.parse(example) for example in examples]
         passage_token_ids, passage_char_ids, question_token_ids, question_char_ids, y0, y1 = zip(*records)
         self.cursor += size
-        return Feeder.align2d(passage_token_ids), Feeder.align3d(passage_char_ids), Feeder.align2d(question_token_ids), Feeder.align3d(question_char_ids)
+        return Feeder.align2d(passage_token_ids), Feeder.align3d(passage_char_ids), Feeder.align2d(question_token_ids), Feeder.align3d(question_char_ids), y0, y1
 
 
     @staticmethod
@@ -84,5 +84,5 @@ if __name__ == '__main__':
     feeder = Feeder(config.train_record_file)
     feeder.prepare()
     batch = feeder.next()
-    ptids, pcids, qtids, qcids = batch
+    ptids, pcids, qtids, qcids, y0, y1 = batch
     print(pcids)

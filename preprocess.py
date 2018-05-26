@@ -88,6 +88,7 @@ def process_dataset(filename, word_counter, char_counter):
                 for qa in para['qas']:
                     _, question_tokens, _ = string_features(qa['question'], word_counter, char_counter)
                     answers = []
+                    cl_answers = []
                     for answer in qa['answers']:
                         answer_text = answer['text']
                         answer_start = answer['answer_start']
@@ -99,11 +100,15 @@ def process_dataset(filename, word_counter, char_counter):
                         answer_span = answer_span[0], answer_span[-1]
                         if answer_span not in answers:
                             answers.append(answer_span)
+                        cl_answers.append((answer_start, answer_end))
+                        
                     example = {
                         'passage_tokens': context_tokens,
                         'question_tokens': question_tokens,
                         'answer_starts': [s for s,_ in answers],
-                        'answer_ends': [s for _,s in answers]
+                        'answer_ends': [s for _,s in answers],
+                        'cl_answer_starts': [s for s,_ in cl_answers],
+                        'cl_answer_ends': [s for _,s in cl_answers]
                     }
                     examples.append(example)
     return examples

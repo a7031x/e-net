@@ -2,6 +2,8 @@ import tensorflow as tf
 import config
 import utils
 import os
+import func
+from pointer_network import PointerNetwork
 
 class Model:
     def __init__(self, word_embeddings, char_embeddings, ckpt_folder, name='model'):
@@ -9,7 +11,7 @@ class Model:
         self.ckpt_folder = ckpt_folder
         if self.ckpt_folder is not None:
             utils.mkdir(self.ckpt_folder)
-        initializer = tf.random_uniform_initializer(-0.5, 0.5)
+        initializer = tf.random_uniform_initializer(-0.05, 0.05)
         with tf.variable_scope(self.name, initializer=initializer):
             self.initialize(word_embeddings, char_embeddings)
 
@@ -21,12 +23,11 @@ class Model:
         self.create_attention()
         self.create_match()
         self.create_pointer()
-
-        self.create_logits()
         self.create_loss()
-        self.create_optimizers()
+        self.create_optimizer()
         self.saver = tf.train.Saver(tf.global_variables(), max_to_keep=2)
-        print(tf.trainable_variables())
+        for v in tf.trainable_variables():
+            print(v.name)
 
 
     def create_inputs(self):
@@ -38,6 +39,7 @@ class Model:
             self.input_label_start = tf.placeholder(tf.int32, shape=[None], name='label_start')
             self.input_label_end = tf.placeholder(tf.int32, shape=[None], name='label_end')
             self.input_keep_prob = tf.placeholder(tf.float32, name='keep_prob')
+            self.batch_size = tf.shape(self.input_passage_word)[0]
             self.passage_mask, self.passage_len = self.tensor_to_mask(self.input_passage_word)
             self.question_mask, self.question_len = self.tensor_to_mask(self.input_question_word)
 
@@ -72,30 +74,41 @@ class Model:
 
     def create_encoding(self):
         with tf.name_scope('encoding'):
-            self.passage_encoding, _ = self.birnn(self.passage_emb, self.passage_len, 3, config.hidden_dim, 'encoding')#[batch, nwords, 500]
-            self.question_encoding, _ = self.birnn(self.question_emb, self.question_len, 3, config.hidden_dim, 'encoding')#[batch, nwords, 500]
+            self.passage_encoding, _ = self.birnn(self.passage_emb, self.passage_len, 3, config.hidden_dim, self.input_keep_prob, 'encoding')#[batch, nwords, 500]
+            self.question_encoding, _ = self.birnn(self.question_emb, self.question_len, 3, config.hidden_dim, self.input_keep_prob, 'encoding')#[batch, nwords, 500]
 
 
     def create_attention(self):
         with tf.name_scope('question_passage_attention'):
             qp_att = self.dot_attention(self.passage_encoding, self.question_encoding, self.question_mask, config.hidden_dim, 'question_passage_attention', self.input_keep_prob)
-            self.qp_attention, _ = self.birnn(qp_att, self.passage_len, 1, config.hidden_dim, 'question_passage_rnn')
+            self.qp_attention, _ = self.birnn(qp_att, self.passage_len, 1, config.hidden_dim, self.input_keep_prob, 'question_passage_rnn')
 
 
     def create_match(self):
         with tf.name_scope('self_match_attention'):
             self_att = self.dot_attention(self.qp_attention, self.qp_attention, self.passage_mask, config.hidden_dim, 'self_match_attention', self.input_keep_prob)
-            self.self_match, _ = self.birnn(self_att, self.passage_len, 1, config.hidden_dim, 'self_match_rnn')
+            self.self_match, _ = self.birnn(self_att, self.passage_len, 1, config.hidden_dim, self.input_keep_prob, 'self_match_rnn')
 
 
     def create_pointer(self):
         with tf.name_scope('pointer'):
-            shape = tf.shape(self.question_encoding)
-            last_two_layers = tf.slice(self.question_encoding, [0, 0, config.hidden_dim], shape)
-            init = self.summary(last_two_layers, config.hidden_dim, self.question_mask, self.input_keep_prob)#[batch, 150]
-            print('----init----', init)
-            pass
-            
+            #shape = tf.shape(self.question_encoding)
+            #last_two_layers = tf.slice(self.question_encoding, [0, 0, -2 * config.hidden_dim], shape[:-1] + [config.hidden_dim*2])
+            init_state = func.summary(self.question_encoding, config.hidden_dim, self.question_mask, self.input_keep_prob)#[batch, 150]
+            pointer = PointerNetwork(self.batch_size, init_state.get_shape()[-1], self.input_keep_prob)
+            self.logit_start, self.logit_end = pointer(init_state, self.self_match, config.hidden_dim, self.passage_mask)
+            join_prob = tf.matmul(tf.expand_dims(self.logit_start, axis=2), tf.expand_dims(self.logit_end, axis=1))
+            upper_mat = tf.matrix_band_part(join_prob, 0, -1)
+            self.output_start = tf.argmax(tf.reduce_max(upper_mat, axis=2), axis=1)
+            self.output_end = tf.argmax(tf.reduce_max(upper_mat, axis=1), axis=1)
+
+
+    def create_loss(self):
+        with tf.name_scope('loss'):
+            self.loss_start = func.sparse_cross_entropy(self.logit_start, self.input_label_start, self.passage_mask)
+            self.loss_end = func.sparse_cross_entropy(self.logit_end, self.input_label_end, self.passage_mask)
+            self.loss = tf.reduce_mean(self.loss_start + self.loss_end)
+
 
     def create_optimizer(self):
         self.global_step = tf.Variable(0, trainable=False)
@@ -126,7 +139,7 @@ class Model:
         return tf.cast(mask, tf.float32), tf.reduce_sum(tf.cast(mask, tf.int32), axis=-1)
 
 
-    def birnn(self, input, length, num_layers, hidden_dim, scope, dropout=1.0):
+    def birnn(self, input, length, num_layers, hidden_dim, keep_prob, scope):
         cells_fw = []
         cells_bk = []
         if hidden_dim is None:
@@ -136,6 +149,8 @@ class Model:
                 with tf.variable_scope('layer{}'.format(layer)):
                     cell_fw = tf.nn.rnn_cell.BasicLSTMCell(hidden_dim, state_is_tuple=True, reuse=tf.AUTO_REUSE)
                     cell_bk = tf.nn.rnn_cell.BasicLSTMCell(hidden_dim, state_is_tuple=True, reuse=tf.AUTO_REUSE)
+                    cell_fw = tf.nn.rnn_cell.DropoutWrapper(cell_fw, input_keep_prob=1.0, output_keep_prob=keep_prob)
+                    cell_bk = tf.nn.rnn_cell.DropoutWrapper(cell_bk, input_keep_prob=1.0, output_keep_prob=keep_prob)
                     cells_fw.append(cell_fw)
                     cells_bk.append(cell_bk)
             output, state_fw, state_bk = tf.contrib.rnn.stack_bidirectional_dynamic_rnn(cells_fw, cells_bk, input, dtype=tf.float32, sequence_length=length)
@@ -156,7 +171,7 @@ class Model:
             _, slen = self.tensor_to_mask(char_id)
             slen = tf.reshape(slen, [nbatches*nwords])
             reshaped_pch = tf.reshape(pch, [nbatches*nwords, nchars, ndim])
-            _, enc = self.birnn(reshaped_pch, slen, 1, config.char_hidden_dim, scope='char_embedding')
+            _, enc = self.birnn(reshaped_pch, slen, 1, config.char_hidden_dim, self.input_keep_prob, 'char_embedding')
             enc = tf.reshape(enc, [nbatches, nwords, enc.get_shape()[-1]])
             return enc
 
@@ -166,45 +181,17 @@ class Model:
         memory = tf.nn.dropout(memory, keep_prob)#[batch, qlen, 500]
         with tf.variable_scope(scope):
             with tf.variable_scope('attention'):
-                dense_value = tf.nn.relu(self.dense(value, config.hidden_dim, False, 'value'))#[batch, plen, 75]
-                dense_memory = tf.nn.relu(self.dense(memory, config.hidden_dim, False, 'memory'))#[batch, qlen, 75]
+                dense_value = tf.nn.relu(func.dense(value, config.hidden_dim, False, 'value'))#[batch, plen, 75]
+                dense_memory = tf.nn.relu(func.dense(memory, config.hidden_dim, False, 'memory'))#[batch, qlen, 75]
                 coref = tf.matmul(dense_value, tf.transpose(dense_memory, [0, 2, 1])) / (hidden_dim**0.5)#[batch, plen, qlen]
-                alpha = self.softmax(coref, mask)#[batch, plen, qlen]
+                alpha = func.softmax(coref, tf.expand_dims(mask, axis=1))#[batch, plen, qlen]
                 attention = tf.matmul(alpha, memory, name='paired_attention')#[batch, plen, 500]
                 pair = tf.concat([value, attention], axis=-1)#[batch, plen, 1000]
             with tf.variable_scope('gate'):
                 last_dim = pair.get_shape()[-1]#1000
                 d_pair = tf.nn.dropout(pair, keep_prob=keep_prob)
-                gate = tf.nn.sigmoid(self.dense(d_pair, last_dim, use_bias=False))#[batch, plen, 1000]
+                gate = tf.nn.sigmoid(func.dense(d_pair, last_dim, use_bias=False))#[batch, plen, 1000]
                 return pair * gate
-
-
-    def dense(self, value, last_dim, use_bias=True, scope='dense'):
-        with tf.variable_scope(scope):
-            weight = tf.get_variable('weight', [value.get_shape()[-1], last_dim])
-            out = tf.einsum('aij,jk->aik', value, weight)
-            if use_bias:
-                b = tf.get_variable('bias', [last_dim])
-                out += b
-            out = tf.identity(out, 'dense')
-            return out
-
-
-    def summary(self, value, hidden_dim, mask, keep_prob, scope='summary'):
-        with tf.variable_scope(scope):
-            value = tf.nn.dropout(value, keep_prob=keep_prob)
-            sj = tf.nn.tanh(self.dense(value, hidden_dim, scope='summary_sj'))
-            sa = tf.squeeze(self.dense(sj, 1, use_bias=False, scope='summary_sa'), [-1])#[batch, len]
-            alpha = tf.expand_dims(self.softmax(sa, mask, False), axis=-1)#[batch, len, 1]
-            return tf.reduce_sum(alpha * value, axis=1)#[batch, dim]
-
-
-    def softmax(self, value, mask, expand_mask=True):
-        if expand_mask:
-            mask = tf.expand_dims(mask, axis=-1)
-        exp = tf.exp(value) * mask
-        alpha = exp / tf.reduce_sum(exp, -1)
-        return alpha
 
 
 if __name__ == '__main__':
