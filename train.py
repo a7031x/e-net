@@ -23,7 +23,8 @@ def train(auto_stop):
     feeder = Feeder(config.train_record_file)
     with tf.Session() as sess:
         model.restore(sess)
-        run_epoch(sess, model, feeder)
+        while True:
+            run_epoch(sess, model, feeder)
 
 
 train(False)
