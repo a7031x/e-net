@@ -1,5 +1,6 @@
 
 checkpoint_folder = './checkpoint'
+log_folder = './log'
 train_file = './data/squad/train-v1.1.json'
 dev_file = './data/squad/dev-v1.1.json'
 #test_file = './data/squad/dev-v1.1.json'
@@ -17,6 +18,6 @@ char_emb_dim = 8
 char_hidden_dim = 100
 hidden_dim = 75
 batch_size = 64
-keep_prob = 0.7
+keep_prob = 1.0
 NULL = '--NULL--'
 OOV = '--OOV--'

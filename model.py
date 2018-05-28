@@ -28,6 +28,7 @@ class Model:
         self.saver = tf.train.Saver(tf.global_variables(), max_to_keep=2)
         for v in tf.trainable_variables():
             print(v.name)
+        print('trainable parameters: {}'.format(self.number_parameters()))
 
 
     def create_inputs(self):
@@ -70,24 +71,31 @@ class Model:
                 qch = self.birnn_char_enc(self.input_question_char, 'question_char_embedding')
             self.passage_emb = tf.concat([self.passage_word_emb, pch], axis=-1)
             self.question_emb = tf.concat([self.question_word_emb, qch], axis=-1)
-
+            tf.summary.histogram('embedding/word_embeddings', self.word_embeddings)
+            tf.summary.histogram('embedding/char_embeddings', self.char_embeddings)
+            tf.summary.histogram('embedding/passage_emb', self.passage_emb)
+            tf.summary.histogram('embedding/question_emb', self.question_emb)
 
     def create_encoding(self):
         with tf.name_scope('encoding'):
-            self.passage_encoding, _ = self.birnn(self.passage_emb, self.passage_len, 3, config.hidden_dim, self.input_keep_prob, 'encoding')#[batch, nwords, 500]
-            self.question_encoding, _ = self.birnn(self.question_emb, self.question_len, 3, config.hidden_dim, self.input_keep_prob, 'encoding')#[batch, nwords, 500]
+            self.passage_encoding, _ = self.birnn(self.passage_emb, self.passage_len, 1, config.hidden_dim, self.input_keep_prob, 'encoding')#[batch, nwords, 500]
+            self.question_encoding, _ = self.birnn(self.question_emb, self.question_len, 1, config.hidden_dim, self.input_keep_prob, 'encoding')#[batch, nwords, 500]
+            tf.summary.histogram('encoding/passage_encoding', self.passage_encoding)
+            tf.summary.histogram('encoding/question_encoding', self.question_encoding)
 
 
     def create_attention(self):
         with tf.name_scope('question_passage_attention'):
             qp_att = self.dot_attention(self.passage_encoding, self.question_encoding, self.question_mask, config.hidden_dim, 'question_passage_attention', self.input_keep_prob)
             self.qp_attention, _ = self.birnn(qp_att, self.passage_len, 1, config.hidden_dim, self.input_keep_prob, 'question_passage_rnn')
+            tf.summary.histogram('attention/qp_attention', self.qp_attention)
 
 
     def create_match(self):
         with tf.name_scope('self_match_attention'):
             self_att = self.dot_attention(self.qp_attention, self.qp_attention, self.passage_mask, config.hidden_dim, 'self_match_attention', self.input_keep_prob)
             self.self_match, _ = self.birnn(self_att, self.passage_len, 1, config.hidden_dim, self.input_keep_prob, 'self_match_rnn')
+            tf.summary.histogram('attention/self_match', self.self_match)
 
 
     def create_pointer(self):
@@ -101,6 +109,9 @@ class Model:
             upper_mat = tf.matrix_band_part(join_prob, 0, -1)
             self.output_start = tf.argmax(tf.reduce_max(upper_mat, axis=2), axis=1)
             self.output_end = tf.argmax(tf.reduce_max(upper_mat, axis=1), axis=1)
+            tf.summary.histogram('pointer/init_state', init_state)
+            tf.summary.histogram('pointer/logit_start', self.logit_start)
+            tf.summary.histogram('pointer/logit_end', self.logit_end)
 
 
     def create_loss(self):
@@ -108,15 +119,15 @@ class Model:
             self.loss_start = func.sparse_cross_entropy(self.logit_start, self.input_label_start, self.passage_mask)
             self.loss_end = func.sparse_cross_entropy(self.logit_end, self.input_label_end, self.passage_mask)
             self.loss = tf.reduce_mean(self.loss_start + self.loss_end)
+            tf.summary.scalar('loss/loss', self.loss)
 
 
     def create_optimizer(self):
         self.global_step = tf.Variable(0, trainable=False)
-        self.lr = tf.get_variable("lr", shape=[], dtype=tf.float32, trainable=False)
-        self.opt = tf.train.AdadeltaOptimizer(learning_rate=self.lr, epsilon=1e-6)
+        self.opt = tf.train.AdadeltaOptimizer(learning_rate=1)
         grads = self.opt.compute_gradients(self.loss)
         gradients, variables = zip(*grads)
-        capped_grads, _ = tf.clip_by_global_norm(gradients, 5.0)
+        capped_grads, _ = tf.clip_by_global_norm(gradients, 50.0)
         self.optimizer = self.opt.apply_gradients(zip(capped_grads, variables), global_step=self.global_step)
 
 
@@ -132,6 +143,10 @@ class Model:
 
     def save(self, sess):
         self.saver.save(sess, os.path.join(self.ckpt_folder, 'model.ckpt'))
+
+
+    def summarize(self, writer):
+        self.summary = tf.summary.merge_all()
 
 
     def tensor_to_mask(self, value):
@@ -192,6 +207,18 @@ class Model:
                 d_pair = tf.nn.dropout(pair, keep_prob=keep_prob)
                 gate = tf.nn.sigmoid(func.dense(d_pair, last_dim, use_bias=False))#[batch, plen, 1000]
                 return pair * gate
+
+
+    def number_parameters(self):
+        total_parameters = 0
+        for variable in tf.trainable_variables():
+            # shape is an array of tf.Dimension
+            shape = variable.get_shape()
+            variable_parameters = 1
+            for dim in shape:
+                variable_parameters *= dim.value
+            total_parameters += variable_parameters
+        return total_parameters
 
 
 if __name__ == '__main__':

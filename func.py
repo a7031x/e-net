@@ -42,8 +42,7 @@ def pointer(encoder_state, decoder_state, hidden_dim, mask, scope='pointer'):
 
 
 def cross_entropy(logit, target, mask):
-    eps = (1-mask) * 1E-8
-    logit += eps
+    logit = tf.clip_by_value(logit, 1E-18, 1-1E-18)
     loss_t = -target * tf.log(logit) * mask
     loss_f = -(1-target) * tf.log(1-logit) * mask
     return loss_t + loss_f

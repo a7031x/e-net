@@ -1,7 +1,10 @@
 
 *.pyc
 data
-data
+log
 generate
 checkpoint
 .vscode/settings.json
+
+*.stackdump
+bash.exe.stackdump
