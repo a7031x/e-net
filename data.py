@@ -9,7 +9,7 @@ class Feeder:
         self.w2i = utils.load_json(config.w2i_file)
         self.c2i = utils.load_json(config.c2i_file)
         with open(filename, 'rb') as file:
-            self.examples = pickle.load(file)
+            self.examples = [x for x in pickle.load(file) if len(x['passage_tokens']) <= 400]
 
 
     def token_to_id(self, token):
