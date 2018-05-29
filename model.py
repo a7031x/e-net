@@ -21,8 +21,9 @@ class Model:
         self.create_embeddings(word_embeddings, char_embeddings)
         self.create_encoding()
         self.create_attention()
-        self.create_match()
-        self.create_pointer()
+        self.create_logit()
+        #self.create_match()
+        #self.create_pointer()
         self.create_loss()
         self.create_optimizer()
         self.saver = tf.train.Saver(tf.global_variables(), max_to_keep=2)
@@ -91,6 +92,16 @@ class Model:
             tf.summary.histogram('attention/qp_attention', self.qp_attention)
 
 
+    def create_logit(self):
+        with tf.name_scope('logit'):
+            self.logit = tf.reduce_sum(self.qp_attention, axis=-1)
+
+
+    def create_loss(self):
+            self.target = tf.one_hot(self.input_label_start, tf.shape(self.logit)[-1], dtype=tf.float32) + tf.one_hot(self.input_label_end, tf.shape(self.logit)[-1], dtype=tf.float32)
+            self.loss = tf.reduce_sum(func.cross_entropy(tf.sigmoid(self.logit), self.target, self.passage_mask)) / tf.cast(self.batch_size, tf.float32)
+
+
     def create_match(self):
         with tf.name_scope('self_match_attention'):
             self_att = self.dot_attention(self.qp_attention, self.qp_attention, self.passage_mask, config.hidden_dim, 'self_match_attention', self.input_keep_prob)
@@ -113,14 +124,14 @@ class Model:
             tf.summary.histogram('pointer/logit_start', self.logit_start)
             tf.summary.histogram('pointer/logit_end', self.logit_end)
 
-
+    '''
     def create_loss(self):
         with tf.name_scope('loss'):
             self.loss_start = func.sparse_cross_entropy(self.logit_start, self.input_label_start, self.passage_mask)
             self.loss_end = func.sparse_cross_entropy(self.logit_end, self.input_label_end, self.passage_mask)
             self.loss = tf.reduce_mean(self.loss_start + self.loss_end)
             tf.summary.scalar('loss/loss', self.loss)
-
+    '''
 
     def create_optimizer(self):
         self.global_step = tf.Variable(0, trainable=False)
