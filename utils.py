@@ -9,8 +9,11 @@ def mkdir(directory):
 
 
 def rmdir(directory):
-    shutil.rmtree(directory)
-
+    try:
+        shutil.rmtree(directory)
+    except:
+        pass
+        
 
 def save_json(filename, obj):
     with open(filename, "w") as file:

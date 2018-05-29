@@ -199,7 +199,8 @@ class Model:
                 dense_value = tf.nn.relu(func.dense(value, config.hidden_dim, False, 'value'))#[batch, plen, 75]
                 dense_memory = tf.nn.relu(func.dense(memory, config.hidden_dim, False, 'memory'))#[batch, qlen, 75]
                 coref = tf.matmul(dense_value, tf.transpose(dense_memory, [0, 2, 1])) / (hidden_dim**0.5)#[batch, plen, qlen]
-                alpha = func.softmax(coref, tf.expand_dims(mask, axis=1))#[batch, plen, qlen]
+                #alpha = func.softmax(coref, tf.expand_dims(mask, axis=1))#[batch, plen, qlen]
+                alpha = tf.nn.sigmoid(coref) * tf.expand_dims(mask, axis=1)
                 attention = tf.matmul(alpha, memory, name='paired_attention')#[batch, plen, 500]
                 pair = tf.concat([value, attention], axis=-1)#[batch, plen, 1000]
             with tf.variable_scope('gate'):

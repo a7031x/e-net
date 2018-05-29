@@ -26,7 +26,7 @@ def train(auto_stop):
     feeder = Feeder(config.train_record_file)
     with tf.Session() as sess:
         model.restore(sess)
-        utils.rmdir(config.log_folder)
+        #utils.rmdir(config.log_folder)
         writer = tf.summary.FileWriter(config.log_folder, sess.graph)
         model.summarize(writer)
         while True:
