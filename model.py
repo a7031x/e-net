@@ -21,9 +21,9 @@ class Model:
         self.create_embeddings(word_embeddings, char_embeddings)
         self.create_encoding()
         self.create_attention()
-        self.create_logit()
-        #self.create_match()
+        self.create_match()
         #self.create_pointer()
+        self.create_logit()
         self.create_loss()
         self.create_optimizer()
         self.saver = tf.train.Saver(tf.global_variables(), max_to_keep=2)
@@ -38,15 +38,14 @@ class Model:
             self.input_question_word = tf.placeholder(tf.int32, shape=[None, None], name='question_word')
             self.input_passage_char = tf.placeholder(tf.int32, shape=[None, None, None], name='passage_char')
             self.input_question_char = tf.placeholder(tf.int32, shape=[None, None, None], name='question_char')
-            self.input_label_start = tf.placeholder(tf.int32, shape=[None], name='label_start')
-            self.input_label_end = tf.placeholder(tf.int32, shape=[None], name='label_end')
+            self.input_label = tf.placeholder(tf.float32, shape=[None, None], name='label')
             self.input_keep_prob = tf.placeholder(tf.float32, name='keep_prob')
             self.batch_size = tf.shape(self.input_passage_word)[0]
             self.passage_mask, self.passage_len = self.tensor_to_mask(self.input_passage_word)
             self.question_mask, self.question_len = self.tensor_to_mask(self.input_question_word)
 
 
-    def feed(self, passage_word, passage_char, question_word, question_char, label_start=None, label_end=None, keep_prob=1.0):
+    def feed(self, passage_word, passage_char, question_word, question_char, label=None, keep_prob=1.0):
         feed_dict = {
             self.input_passage_word: passage_word,
             self.input_passage_char: passage_char,
@@ -54,9 +53,8 @@ class Model:
             self.input_question_char: question_char,
             self.input_keep_prob: keep_prob
         }
-        if label_start is not None and label_end is not None:
-            feed_dict[self.input_label_start] = label_start
-            feed_dict[self.input_label_end] = label_end
+        if label is not None:
+            feed_dict[self.input_label] = label
         return feed_dict
 
 
@@ -77,10 +75,11 @@ class Model:
             tf.summary.histogram('embedding/passage_emb', self.passage_emb)
             tf.summary.histogram('embedding/question_emb', self.question_emb)
 
+
     def create_encoding(self):
         with tf.name_scope('encoding'):
-            self.passage_encoding, _ = self.birnn(self.passage_emb, self.passage_len, 1, config.hidden_dim, self.input_keep_prob, 'encoding')#[batch, nwords, 500]
-            self.question_encoding, _ = self.birnn(self.question_emb, self.question_len, 1, config.hidden_dim, self.input_keep_prob, 'encoding')#[batch, nwords, 500]
+            self.passage_encoding, _ = self.birnn(self.passage_emb, self.passage_len, 3, config.hidden_dim, self.input_keep_prob, 'encoding')#[batch, nwords, 500]
+            self.question_encoding, _ = self.birnn(self.question_emb, self.question_len, 3, config.hidden_dim, self.input_keep_prob, 'encoding')#[batch, nwords, 500]
             tf.summary.histogram('encoding/passage_encoding', self.passage_encoding)
             tf.summary.histogram('encoding/question_encoding', self.question_encoding)
 
@@ -94,12 +93,14 @@ class Model:
 
     def create_logit(self):
         with tf.name_scope('logit'):
-            self.logit = tf.reduce_sum(self.qp_attention, axis=-1)
+            self.logit = tf.squeeze(func.dense(self.self_match, 1, use_bias=True), [-1])
+            tf.summary.histogram('logit/logit', self.logit)
 
 
     def create_loss(self):
-            self.target = tf.one_hot(self.input_label_start, tf.shape(self.logit)[-1], dtype=tf.float32) + tf.one_hot(self.input_label_end, tf.shape(self.logit)[-1], dtype=tf.float32)
-            self.loss = tf.reduce_sum(func.cross_entropy(tf.sigmoid(self.logit), self.target, self.passage_mask)) / tf.cast(self.batch_size, tf.float32)
+        with tf.name_scope('loss'):
+            self.loss = tf.reduce_sum(func.cross_entropy(tf.sigmoid(self.logit), self.input_label, self.passage_mask, pos_weight=3.0)) / tf.cast(self.batch_size, tf.float32)
+            tf.summary.scalar('loss/loss', self.loss)
 
 
     def create_match(self):
@@ -124,21 +125,13 @@ class Model:
             tf.summary.histogram('pointer/logit_start', self.logit_start)
             tf.summary.histogram('pointer/logit_end', self.logit_end)
 
-    '''
-    def create_loss(self):
-        with tf.name_scope('loss'):
-            self.loss_start = func.sparse_cross_entropy(self.logit_start, self.input_label_start, self.passage_mask)
-            self.loss_end = func.sparse_cross_entropy(self.logit_end, self.input_label_end, self.passage_mask)
-            self.loss = tf.reduce_mean(self.loss_start + self.loss_end)
-            tf.summary.scalar('loss/loss', self.loss)
-    '''
 
     def create_optimizer(self):
         self.global_step = tf.Variable(0, trainable=False)
-        self.opt = tf.train.AdadeltaOptimizer(learning_rate=1)
+        self.opt = tf.train.AdamOptimizer(learning_rate=1E-3)
         grads = self.opt.compute_gradients(self.loss)
         gradients, variables = zip(*grads)
-        capped_grads, _ = tf.clip_by_global_norm(gradients, 50.0)
+        capped_grads, _ = tf.clip_by_global_norm(gradients, 5.0)
         self.optimizer = self.opt.apply_gradients(zip(capped_grads, variables), global_step=self.global_step)
 
 
@@ -219,6 +212,10 @@ class Model:
                 d_pair = tf.nn.dropout(pair, keep_prob=keep_prob)
                 gate = tf.nn.sigmoid(func.dense(d_pair, last_dim, use_bias=False))#[batch, plen, 1000]
                 return pair * gate
+
+
+    def one_hot(self, label):
+        return tf.one_hot(label, tf.shape(self.logit)[-1], dtype=tf.float32)
 
 
     def number_parameters(self):

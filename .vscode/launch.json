@@ -9,13 +9,19 @@
             "type": "python",
             "request": "launch",
             "program": "${workspaceFolder}/preprocess.py"
-        },    
+        },
         {
             "name": "Python: train",
             "type": "python",
             "request": "launch",
             "program": "${workspaceFolder}/train.py"
-        },    
+        },
+        {
+            "name": "Python: evaluate",
+            "type": "python",
+            "request": "launch",
+            "program": "${workspaceFolder}/evaluator.py"
+        },
         {
             "name": "Python: Current File",
             "type": "python",

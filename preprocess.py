@@ -34,14 +34,15 @@ def convert_idx(text, tokens):
     return spans
 
 
-def string_features(passage, word_counter, char_counter):
+def string_features(passage, word_counter=None, char_counter=None):
     passage = remove_invalid_chars(passage)
     tokens = word_tokenize(passage)
     chars = [list(token) for token in tokens]
-    for token in tokens:
-        word_counter[token] += 1
-        for char in token:
-            char_counter[char] += 1
+    if word_counter is not None:
+        for token in tokens:
+            word_counter[token] += 1
+            for char in token:
+                char_counter[char] += 1
     return passage, tokens, chars
 
 
@@ -119,23 +120,24 @@ def build_features(examples, filename):
         pickle.dump(examples, file)
 
 
-mkdir('./generate/squad')
-word_counter = Counter()
-char_counter = Counter()
-print('extracting examples...')
-train_examples = process_dataset(config.train_file, word_counter, char_counter)
-dev_examples = process_dataset(config.dev_file, word_counter, char_counter)
-dev_examples, test_examples = dev_examples[:len(dev_examples)//2], dev_examples[len(dev_examples)//2:]
-print('creating embeddings...')
-word_embeddings, w2i = process_word_embedding(word_counter)
-char_embeddings, c2i = process_char_embedding(char_counter)
-print('#word: {}, #char: {}'.format(len(word_embeddings), len(char_embeddings)))
-print('saving files...')
-build_features(train_examples, config.train_record_file)
-build_features(dev_examples, config.dev_record_file)
-build_features(test_examples, config.test_record_file)
-save_json(config.word_embeddings_file, word_embeddings)
-save_json(config.char_embeddings_file, char_embeddings)
-save_json(config.w2i_file, w2i)
-save_json(config.c2i_file, c2i)
-print('done.')
+if __name__ == '__main__':
+    mkdir('./generate/squad')
+    word_counter = Counter()
+    char_counter = Counter()
+    print('extracting examples...')
+    train_examples = process_dataset(config.train_file, word_counter, char_counter)
+    dev_examples = process_dataset(config.dev_file, word_counter, char_counter)
+    dev_examples, test_examples = dev_examples[:len(dev_examples)//2], dev_examples[len(dev_examples)//2:]
+    print('creating embeddings...')
+    word_embeddings, w2i = process_word_embedding(word_counter)
+    char_embeddings, c2i = process_char_embedding(char_counter)
+    print('#word: {}, #char: {}'.format(len(word_embeddings), len(char_embeddings)))
+    print('saving files...')
+    build_features(train_examples, config.train_record_file)
+    build_features(dev_examples, config.dev_record_file)
+    build_features(test_examples, config.test_record_file)
+    save_json(config.word_embeddings_file, word_embeddings)
+    save_json(config.char_embeddings_file, char_embeddings)
+    save_json(config.w2i_file, w2i)
+    save_json(config.c2i_file, c2i)
+    print('done.')
