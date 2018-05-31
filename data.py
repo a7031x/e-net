@@ -49,7 +49,7 @@ class TrainFeeder(Feeder):
     def __init__(self, filename):
         super(TrainFeeder, self).__init__()
         with open(filename, 'rb') as file:
-            self.examples = [x for x in pickle.load(file) if len(x['passage_tokens']) <= 400 and len(x['question_tokens']) <= 50]
+            self.examples = [x for x in pickle.load(file) if len(x['passage_tokens']) < 400 and len(x['question_tokens']) <= 50]
 
 
     def parse(self, example):
