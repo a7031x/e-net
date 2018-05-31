@@ -1,4 +1,5 @@
 import tensorflow as tf
+import numpy as np
 import config
 import utils
 import os
@@ -65,7 +66,7 @@ class Model:
                 self.passage_word_emb = tf.nn.embedding_lookup(self.word_embeddings, self.input_passage_word)
                 self.question_word_emb = tf.nn.embedding_lookup(self.word_embeddings, self.input_question_word)
             with tf.name_scope('char'):
-                self.char_embeddings = tf.Variable(char_embeddings, name='char_embeddings')
+                self.char_embeddings = tf.get_variable(name='char_embeddings', shape=np.shape(char_embeddings))
                 pch = self.birnn_char_enc(self.input_passage_char, 'passage_char_embedding')
                 qch = self.birnn_char_enc(self.input_question_char, 'question_char_embedding')
             self.passage_emb = tf.concat([self.passage_word_emb, pch], axis=-1)
